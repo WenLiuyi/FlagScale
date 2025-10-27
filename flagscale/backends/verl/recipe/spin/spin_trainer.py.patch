@@ -1,38 +1,13 @@
 diff --git a/recipe/spin/spin_trainer.py b/recipe/spin/spin_trainer.py
-index 3f69d831..ef81088e 100644
+index ef81088e..9bdfc30a 100644
 --- a/recipe/spin/spin_trainer.py
 +++ b/recipe/spin/spin_trainer.py
-@@ -44,7 +44,7 @@ from verl.trainer.ppo.metric_utils import (
- )
- from verl.trainer.ppo.utils import Role, WorkerType, need_reference_policy, need_reward_model
- from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
--from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
-+from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, get_advanced_seqlen_balanced_partitions, log_seqlen_unbalance, PackingAlgorithm
- from verl.utils.torch_functional import masked_mean
- from verl.utils.tracking import ValidationGenerationsLogger
- 
-@@ -813,8 +813,22 @@ class RaySPINTrainer:
-         batch_size = attention_mask.shape[0]
+@@ -814,7 +814,7 @@ class RaySPINTrainer:
          global_seqlen_lst = batch.batch["attention_mask"].view(batch_size, -1).sum(-1).tolist()  # (train_batch_size,)
          world_size = self.actor_rollout_wg.world_size
--        global_partition_lst = get_seqlen_balanced_partitions(
--            global_seqlen_lst, k_partitions=world_size, equal_size=True
-+        sequence_packing_config = None
-+        if hasattr(self.config.actor_rollout_ref.actor, 'sequence_packing'):
-+            sequence_packing_config = self.config.actor_rollout_ref.actor.sequence_packing
-+        packing_algorithm = sequence_packing_config.get("algorithm", PackingAlgorithm.KARMARKAR_KARP) if sequence_packing_config else PackingAlgorithm.KARMARKAR_KARP
-+        
-+        total_tokens = sum(global_seqlen_lst)
-+        avg_tokens_per_rank = total_tokens // world_size
-+        bin_capacity = max(avg_tokens_per_rank * 2, max(global_seqlen_lst))
-+        
-+        global_partition_lst = get_advanced_seqlen_balanced_partitions(
-+            seqlen_list=global_seqlen_lst,
-+            k_partitions=world_size,
-+            equal_size=True,
-+            packing_algorithm=packing_algorithm,
-+            bin_capacity=bin_capacity,
-+            sequence_packing_config=sequence_packing_config
-         )
-         # reorder based on index. The data will be automatically equally partitioned by dispatch function
-         global_idx = torch.tensor([j for partition in global_partition_lst for j in partition])
+         sequence_packing_config = None
+-        if hasattr(self.config.actor_rollout_ref.actor, 'sequence_packing'):
++        if self.config.actor_rollout_ref.actor.sequence_packing:
+             sequence_packing_config = self.config.actor_rollout_ref.actor.sequence_packing
+         packing_algorithm = sequence_packing_config.get("algorithm", PackingAlgorithm.KARMARKAR_KARP) if sequence_packing_config else PackingAlgorithm.KARMARKAR_KARP
+         
