@@ -1,0 +1,12 @@
+diff --git a/verl/workers/config/actor.py b/verl/workers/config/actor.py
+index fe5b3e11..17994503 100644
+--- a/verl/workers/config/actor.py
++++ b/verl/workers/config/actor.py
+@@ -120,6 +120,7 @@ class ActorConfig(BaseConfig):
+     data_loader_seed = 1
+     rollout_n: int = 1  # must be override by sampling config
+     model_config: HFModelConfig = field(default_factory=BaseConfig)
++    sequence_packing: dict[str, Any] = field(default_factory=dict)
+ 
+     def __post_init__(self):
+         """Validate actor configuration parameters."""
