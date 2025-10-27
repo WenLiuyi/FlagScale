@@ -1,13 +1,25 @@
 diff --git a/verl/trainer/config/actor/actor.yaml b/verl/trainer/config/actor/actor.yaml
-index 7c55df26..16da0bf7 100644
+index 7c55df26..2b293ae8 100644
 --- a/verl/trainer/config/actor/actor.yaml
 +++ b/verl/trainer/config/actor/actor.yaml
-@@ -210,3 +210,17 @@ profiler:
+@@ -199,8 +199,8 @@ profiler:
+       # stop profile mini-batch in training
+       step_end: null
+ 
+-    # torch memory profiler config
+-    torch_memory:
++  # torch memory profiler config
++  torch_memory:
+ 
+       # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+       _target_: verl.utils.profiler.config.TorchMemoryToolConfig
+@@ -210,3 +210,20 @@ profiler:
  
        # Stack trace depth for memory allocations
        stack_depth: ${oc.select:global_profiler.global_tool_config.torch_memory.stack_depth,32}
 +
-+# Sequence packing configuration
++# Sequence packing configuration for dynamic batching
++# Controls the algorithm used to pack sequences of different lengths into batches
 +sequence_packing:
 +
 +  # Algorithm to use for sequence packing
@@ -16,7 +28,9 @@ index 7c55df26..16da0bf7 100644
 +  algorithm: karmarkar_karp
 +
 +  # Whether to use dynamic batch size balancing
++  # When enabled, balances computational workload across micro-batches
 +  use_dynamic_bsz_balance: false
 +
 +  # Whether to collect metrics during packing
++  # Metrics include bin utilization, waste ratio, balance, etc.
 +  collect_metrics: false

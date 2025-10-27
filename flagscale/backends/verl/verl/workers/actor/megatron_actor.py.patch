@@ -1,5 +1,5 @@
 diff --git a/verl/workers/actor/megatron_actor.py b/verl/workers/actor/megatron_actor.py
-index 55c4d60a..f163a9c0 100644
+index 38d317e1..fb0a1156 100644
 --- a/verl/workers/actor/megatron_actor.py
 +++ b/verl/workers/actor/megatron_actor.py
 @@ -23,10 +23,11 @@ import itertools
@@ -49,7 +49,7 @@ index 55c4d60a..f163a9c0 100644
              total_seqlen = max_token_len
          else:
              assert micro_batch_size is not None, (
-@@ -677,3 +689,60 @@ class MegatronPPOActor(BasePPOActor):
+@@ -675,3 +687,60 @@ class MegatronPPOActor(BasePPOActor):
              self.prof.stop_trace()
          get_torch_device().empty_cache()
          return metrics

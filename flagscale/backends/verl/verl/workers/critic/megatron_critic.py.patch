@@ -1,5 +1,5 @@
 diff --git a/verl/workers/critic/megatron_critic.py b/verl/workers/critic/megatron_critic.py
-index 639cc0a1..e4ff33f2 100644
+index 99daa220..ccf7ec14 100644
 --- a/verl/workers/critic/megatron_critic.py
 +++ b/verl/workers/critic/megatron_critic.py
 @@ -19,7 +19,7 @@ import itertools
