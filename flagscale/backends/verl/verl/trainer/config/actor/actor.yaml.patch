@@ -1,0 +1,22 @@
+diff --git a/verl/trainer/config/actor/actor.yaml b/verl/trainer/config/actor/actor.yaml
+index 7c55df26..16da0bf7 100644
+--- a/verl/trainer/config/actor/actor.yaml
++++ b/verl/trainer/config/actor/actor.yaml
+@@ -210,3 +210,17 @@ profiler:
+ 
+       # Stack trace depth for memory allocations
+       stack_depth: ${oc.select:global_profiler.global_tool_config.torch_memory.stack_depth,32}
++
++# Sequence packing configuration
++sequence_packing:
++
++  # Algorithm to use for sequence packing
++  # Options: karmarkar_karp, concatenative, first_fit_decreasing, first_fit_shuffle, modified_first_fit_decreasing
++  # Default: karmarkar_karp (balanced partitioning algorithm)
++  algorithm: karmarkar_karp
++
++  # Whether to use dynamic batch size balancing
++  use_dynamic_bsz_balance: false
++
++  # Whether to collect metrics during packing
++  collect_metrics: false

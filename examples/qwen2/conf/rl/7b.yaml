@@ -45,19 +45,11 @@ actor_rollout_ref:
     name: vllm
     gpu_memory_utilization: 0.8
     n: 5
-    sequence_packing:
-      algorithm: "modified_first_fit_decreasing"
-      use_dynamic_bsz_balance: true
-      collect_metrics: true
       
   ref:
     log_prob_micro_batch_size_per_gpu: 10
     fsdp_config:
       param_offload: true
-    sequence_packing:
-      algorithm: "concatenative"
-      use_dynamic_bsz_balance: false
-      collect_metrics: false
 
 trainer:
   critic_warmup: 0
@@ -70,7 +62,3 @@ trainer:
   test_freq: 5
   total_epochs: 15
   default_local_dir: ${experiment.exp_dir}/checkpoints
-  sequence_packing:
-    algorithm: "modified_first_fit_decreasing"  
-    use_dynamic_bsz_balance: true
-    collect_metrics: true
