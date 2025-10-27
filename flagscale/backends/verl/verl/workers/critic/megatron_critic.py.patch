@@ -1,0 +1,31 @@
+diff --git a/verl/workers/critic/megatron_critic.py b/verl/workers/critic/megatron_critic.py
+index 639cc0a1..73b5dc70 100644
+--- a/verl/workers/critic/megatron_critic.py
++++ b/verl/workers/critic/megatron_critic.py
+@@ -19,7 +19,7 @@ import itertools
+ import logging
+ import os
+ from functools import partial
+-from typing import Iterable
++from typing import Iterable, List, Optional, Tuple
+ 
+ import torch
+ import torch.distributed
+@@ -37,6 +37,7 @@ from verl.utils.profiler import GPUMemoryLogger
+ from verl.utils.py_functional import append_to_dict
+ from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
+ from verl.utils.torch_functional import broadcast_dict_tensor, masked_mean
++from verl.utils.sequence_packing import get_sequence_packer
+ from verl.workers.critic import BasePPOCritic
+ 
+ logger = logging.getLogger(__file__)
+@@ -63,6 +64,9 @@ class MegatronPPOCritic(BasePPOCritic):
+         self.critic_module = critic_module
+         self.critic_optimizer = critic_optimizer
+         self.critic_optimizer_config = critic_optimizer_config
++        self.sequence_packer = None
++        if (hasattr(self.config.actor_rollout_ref.actor, 'sequence_packing')):
++            self.sequence_packer = get_sequence_packer(self.config.actor_rollout_ref.actor.sequence_packing)
+ 
+         # we create a separate nametuple for optimizer step so that global args won't affect it.
+         self.optimizer_step_args = OmegaConf.create(

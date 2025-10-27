@@ -1,0 +1,39 @@
+diff --git a/recipe/transfer_queue/ray_trainer.py b/recipe/transfer_queue/ray_trainer.py
+index d6adbddb..6fe12f2e 100644
+--- a/recipe/transfer_queue/ray_trainer.py
++++ b/recipe/transfer_queue/ray_trainer.py
+@@ -82,7 +82,9 @@ from verl.utils.metric import reduce_metrics
+ from verl.utils.rollout_skip import RolloutSkip
+ from verl.utils.seqlen_balancing import (
+     get_seqlen_balanced_partitions,
++    get_advanced_seqlen_balanced_partitions,
+     log_seqlen_unbalance,
++    PackingAlgorithm,
+ )
+ from verl.utils.torch_functional import masked_mean
+ from verl.utils.tracking import ValidationGenerationsLogger
+@@ -1172,8 +1174,22 @@ class RayPPOTrainer:
+         batch_size = attention_mask.shape[0]
+         global_seqlen_lst = data["attention_mask"].view(batch_size, -1).sum(-1).tolist()  # (train_batch_size,)
+         world_size = self.actor_rollout_wg.world_size
+-        global_partition_lst = get_seqlen_balanced_partitions(
+-            global_seqlen_lst, k_partitions=world_size, equal_size=True
++        sequence_packing_config = None
++        if hasattr(self.config.actor_rollout_ref.actor, 'sequence_packing'):
++            sequence_packing_config = self.config.actor_rollout_ref.actor.sequence_packing
++        packing_algorithm = sequence_packing_config.get("algorithm", PackingAlgorithm.KARMARKAR_KARP) if sequence_packing_config else PackingAlgorithm.KARMARKAR_KARP
++        
++        total_tokens = sum(global_seqlen_lst)
++        avg_tokens_per_rank = total_tokens // world_size
++        bin_capacity = max(avg_tokens_per_rank * 2, max(global_seqlen_lst))
++        
++        global_partition_lst = get_advanced_seqlen_balanced_partitions(
++            seqlen_list=global_seqlen_lst,
++            k_partitions=world_size,
++            equal_size=True,
++            packing_algorithm=packing_algorithm,
++            bin_capacity=bin_capacity,
++            sequence_packing_config=sequence_packing_config
+         )
+         # reorder based on index. The data will be automatically equally partitioned by dispatch function
+         global_idx = [j for partition in global_partition_lst for j in partition]
