@@ -1,0 +1,168 @@
+diff --git a/python/sglang/srt/managers/scheduler_update_weights_mixin.py b/python/sglang/srt/managers/scheduler_update_weights_mixin.py
+index fdae2142c..864921e8f 100644
+--- a/python/sglang/srt/managers/scheduler_update_weights_mixin.py
++++ b/python/sglang/srt/managers/scheduler_update_weights_mixin.py
+@@ -1,4 +1,7 @@
+ import logging
++import os
++import random
++import time
+ from typing import Tuple
+ 
+ import torch
+@@ -82,10 +85,12 @@ class SchedulerUpdateWeightsMixin:
+             self.offload_tags.add(tag)
+ 
+         if GPU_MEMORY_TYPE_KV_CACHE in tags:
++            self._pause_nccl_communicators(GPU_MEMORY_TYPE_KV_CACHE)
+             self.memory_saver_adapter.pause(GPU_MEMORY_TYPE_KV_CACHE)
+             self.flush_cache()
+ 
+         if GPU_MEMORY_TYPE_WEIGHTS in tags:
++            self._pause_nccl_communicators(GPU_MEMORY_TYPE_WEIGHTS)
+             self.stashed_model_static_state = _export_static_state(
+                 self.tp_worker.worker.model_runner.model
+             )
+@@ -104,6 +109,8 @@ class SchedulerUpdateWeightsMixin:
+             self.offload_tags.remove(tag)
+ 
+         if GPU_MEMORY_TYPE_WEIGHTS in tags:
++            group_id = self._get_group_id_for_tag(GPU_MEMORY_TYPE_WEIGHTS)
++            self._set_nccl_group_id(GPU_MEMORY_TYPE_WEIGHTS, group_id)
+             self.memory_saver_adapter.resume(GPU_MEMORY_TYPE_WEIGHTS)
+             torch.distributed.barrier(self.tp_cpu_group)
+             _import_static_state(
+@@ -111,9 +118,13 @@ class SchedulerUpdateWeightsMixin:
+                 self.stashed_model_static_state,
+             )
+             del self.stashed_model_static_state
++            self._resume_nccl_communicators(GPU_MEMORY_TYPE_WEIGHTS)
+ 
+         if GPU_MEMORY_TYPE_KV_CACHE in tags:
++            group_id = self._get_group_id_for_tag(GPU_MEMORY_TYPE_KV_CACHE)
++            self._set_nccl_group_id(GPU_MEMORY_TYPE_KV_CACHE, group_id)
+             self.memory_saver_adapter.resume(GPU_MEMORY_TYPE_KV_CACHE)
++            self._resume_nccl_communicators(GPU_MEMORY_TYPE_KV_CACHE)
+ 
+         return ResumeMemoryOccupationReqOutput()
+ 
+@@ -140,6 +151,114 @@ class SchedulerUpdateWeightsMixin:
+             max_size=params["max_size"],
+         )
+ 
++    def _get_nccl_communicators_for_tag(self, tag: str):
++        communicators = []
++        worker = self.tp_worker.worker
++        model_runner = worker.model_runner
++
++        if tag == GPU_MEMORY_TYPE_WEIGHTS:
++            for group_name, process_group in model_runner._model_update_group.items():
++                if process_group.pynccl_comm is not None:
++                    communicators.append(process_group.pynccl_comm)
++
++        elif tag == GPU_MEMORY_TYPE_KV_CACHE:
++            if model_runner.tp_group is not None and model_runner.tp_group.pynccl_comm is not None:
++                communicators.append(model_runner.tp_group.pynccl_comm)
++            if model_runner.attention_tp_group is not None and model_runner.attention_tp_group.pynccl_comm is not None:
++                communicators.append(model_runner.attention_tp_group.pynccl_comm)
++
++        return communicators
++
++    def _set_nccl_group_id(self, tag: str, group_id: int):
++        communicators = self._get_nccl_communicators_for_tag(tag)
++        for comm in communicators:
++            if comm is not None:
++                comm.set_group_id(group_id)
++
++    def _pause_nccl_communicators(self, tag: str):
++        from sglang.srt.distributed.parallel_state import get_tensor_model_parallel_group
++        
++        tp_group = get_tensor_model_parallel_group()
++        if tp_group is None or tp_group.pynccl_comm is None:
++            return
++            
++        pynccl_comm = tp_group.pynccl_comm
++        if pynccl_comm.available and pynccl_comm.nccl.enable_amem_nccl:
++            torch.distributed.barrier(group=self.tp_cpu_group)
++            pynccl_comm.pause()
++            torch.distributed.barrier(group=self.tp_cpu_group)
++
++    def _resume_nccl_communicators(self, tag: str):
++        from sglang.srt.distributed.parallel_state import get_tensor_model_parallel_group
++        
++        tp_group = get_tensor_model_parallel_group()
++        if tp_group is None or tp_group.pynccl_comm is None:
++            return
++        
++        pynccl_comm = tp_group.pynccl_comm
++        if pynccl_comm.available and pynccl_comm.nccl.enable_amem_nccl:
++            torch.distributed.barrier(group=self.tp_cpu_group)
++            pynccl_comm.resume()
++            torch.distributed.barrier(group=self.tp_cpu_group)
++
++    def _generate_group_id(self, tag: str) -> int:
++        tag_hash = hash(tag) & 0x7FFFFFFF 
++        try:
++            time_ns = time.time_ns()
++        except AttributeError:
++            time_ns = int(time.time() * 1e9)
++        
++        random_component = random.randint(1, 0x7FFFFFFF)
++        
++        try:
++            import os
++            import threading
++            process_id = os.getpid()
++            thread_id = threading.get_ident()
++        except Exception:
++            process_id = 0
++            thread_id = 0
++        
++        group_id = (
++            tag_hash ^
++            (time_ns & 0x7FFFFFFF) ^
++            random_component ^
++            (process_id & 0xFFFF) ^
++            (thread_id & 0xFFFF)
++        ) & 0x7FFFFFFF  
++        
++        if group_id == 0:
++            group_id = random.randint(1, 0x7FFFFFFF)
++        
++        return group_id
++
++    def _get_group_id_for_tag(self, tag: str) -> int:
++        tag_specific_env = f"AMEM_GROUPID_{tag.upper()}"
++        tag_groupid = os.environ.get(tag_specific_env, None)
++        if tag_groupid is not None:
++            group_id = int(tag_groupid)
++
++        amem_groupid = os.environ.get("AMEM_GROUPID", None)
++        if amem_groupid is not None:
++            group_id = int(amem_groupid)
++
++        return self._generate_and_sync_group_id(tag)
++
++    def _generate_and_sync_group_id(self, tag: str) -> int:
++        rank = torch.distributed.get_rank(self.tp_cpu_group) if torch.distributed.is_initialized() else 0
++        
++        if rank == 0:
++            group_id = self._generate_group_id(tag)
++        else:
++            group_id = 0
++        
++        if torch.distributed.is_initialized() and self.tp_cpu_group is not None:
++            group_id_tensor = torch.tensor([group_id], dtype=torch.int32, device="cpu")
++            torch.distributed.broadcast(group_id_tensor, src=0, group=self.tp_cpu_group)
++            group_id = int(group_id_tensor.item())
++        
++        return group_id
++
+ 
+ def _export_static_state(model):
+     return dict(
+@@ -153,3 +272,4 @@ def _import_static_state(model, static_params):
+     self_named_buffers = dict(model.named_buffers())
+     for name, tensor in static_params["buffers"]:
+         self_named_buffers[name][...] = tensor
++

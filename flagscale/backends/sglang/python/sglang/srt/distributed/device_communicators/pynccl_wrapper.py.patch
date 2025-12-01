@@ -1,0 +1,90 @@
+diff --git a/python/sglang/srt/distributed/device_communicators/pynccl_wrapper.py b/python/sglang/srt/distributed/device_communicators/pynccl_wrapper.py
+index 579811777..f0ac40a41 100644
+--- a/python/sglang/srt/distributed/device_communicators/pynccl_wrapper.py
++++ b/python/sglang/srt/distributed/device_communicators/pynccl_wrapper.py
+@@ -34,13 +34,34 @@ from torch.distributed import ReduceOp
+ logger = logging.getLogger(__name__)
+ 
+ 
++def _load_amem_nccl_library():
++    amem_enable = os.environ.get("AMEM_ENABLE", "0") == "1"
++    nccl_enable_cumem = os.environ.get("NCCL_ENABLE_CUMEM", "0") == "1"
++    if not (amem_enable and nccl_enable_cumem):
++        return None
++    
++    amem_lib_path = os.environ.get("AMEM_NCCL_SO_PATH", None)
++    if not amem_lib_path:
++        logger.debug(
++            "AMEM is enabled but AMEM_NCCL_SO_PATH is not set. "
++            "Please set AMEM_NCCL_SO_PATH to the full path of libamem_nccl.so.1. "
++        )
++        return None
++    
++    try:
++        _amem_nccl_lib = ctypes.CDLL(amem_lib_path, mode=ctypes.RTLD_GLOBAL)
++        return _amem_nccl_lib
++    except Exception as e:
++        logger.warning(
++            f"Failed to load AMEM NCCL library from {amem_lib_path}: {e}. "
++        )
++        return None
++
++
+ def find_nccl_library() -> str:
+-    """
+-    We either use the library file specified by the `SGLANG_NCCL_SO_PATH`
+-    environment variable, or we find the library file brought by PyTorch.
+-    After importing `torch`, `libnccl.so.2` or `librccl.so.1` can be
+-    found by `ctypes` automatically.
+-    """
++    # Preload libamem_nccl.so if AMEM is enabled
++    # This must be done before loading libnccl.so.2 so that NCCL can link to AMEM symbols
++    _load_amem_nccl_library()
+ 
+     # so_file can be set to None in sglang
+     so_file = os.environ.get("SGLANG_NCCL_SO_PATH", None)
+@@ -302,6 +323,12 @@ class NCCLLibrary:
+         Function("ncclGroupStart", ncclResult_t, []),
+         # ncclResult_t ncclGroupEnd();
+         Function("ncclGroupEnd", ncclResult_t, []),
++        # ncclResult_t ncclPause(ncclComm_t comm);
++        Function("ncclPause", ncclResult_t, [ncclComm_t]),
++        # ncclResult_t ncclResume(ncclComm_t comm);
++        Function("ncclResume", ncclResult_t, [ncclComm_t]),
++        # ncclResult_t ncclSetGroupID(int group_id);
++        Function("ncclSetGroupID", ncclResult_t, [ctypes.c_int]),
+     ]
+ 
+     exported_functions_symm_mem = [
+@@ -365,6 +392,10 @@ class NCCLLibrary:
+             NCCLLibrary.path_to_dict_mapping[so_file] = _funcs
+         self._funcs = NCCLLibrary.path_to_dict_mapping[so_file]
+ 
++        nccl_enable_cumem = os.environ.get("NCCL_ENABLE_CUMEM", "0") == "1"
++        amem_enable = os.environ.get("AMEM_ENABLE", "0") == "1"
++        self.enable_amem_nccl = nccl_enable_cumem and amem_enable and has_nccl_pause_resume
++
+     def ncclGetErrorString(self, result: ncclResult_t) -> str:
+         return self._funcs["ncclGetErrorString"](result).decode("utf-8")
+ 
+@@ -551,6 +582,15 @@ class NCCLLibrary:
+     def ncclGroupEnd(self) -> None:
+         self.NCCL_CHECK(self._funcs["ncclGroupEnd"]())
+ 
++    def ncclPause(self, comm: ncclComm_t) -> None:
++        self.NCCL_CHECK(self._funcs["ncclPause"](comm))
++
++    def ncclResume(self, comm: ncclComm_t) -> None:
++        self.NCCL_CHECK(self._funcs["ncclResume"](comm))
++
++    def ncclSetGroupID(self, group_id: int) -> None:
++        self.NCCL_CHECK(self._funcs["ncclSetGroupID"](group_id))
++
+ 
+ __all__ = [
+     "NCCLLibrary",
+@@ -561,3 +601,4 @@ __all__ = [
+     "cudaStream_t",
+     "buffer_type",
+ ]
++

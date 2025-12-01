@@ -1,0 +1,31 @@
+diff --git a/python/sglang/srt/distributed/device_communicators/pynccl.py b/python/sglang/srt/distributed/device_communicators/pynccl.py
+index fbb59c477..121acab91 100644
+--- a/python/sglang/srt/distributed/device_communicators/pynccl.py
++++ b/python/sglang/srt/distributed/device_communicators/pynccl.py
+@@ -316,6 +316,21 @@ class PyNcclCommunicator:
+     def group_end(self):
+         self.nccl.ncclGroupEnd()
+ 
++    def set_group_id(self, group_id: int):
++        if not self.available:
++            return
++        self.nccl.ncclSetGroupID(group_id)
++
++    def pause(self):
++        if not self.available:
++            return
++        self.nccl.ncclPause(self.comm)
++
++    def resume(self):
++        if not self.available:
++            return
++        self.nccl.ncclResume(self.comm)
++
+     @contextmanager
+     def change_state(
+         self, enable: Optional[bool] = None, stream: Optional[torch.cuda.Stream] = None
+@@ -339,3 +354,4 @@ class PyNcclCommunicator:
+ 
+         self.disabled = old_disable
+         self.stream = old_stream
++
